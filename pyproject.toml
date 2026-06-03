@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-job-apply"
+version = "0.1.0"
+description = "Local-first human-supervised auto job apply PoC"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.7,<3",
+  "typer>=0.12,<1",
+  "rich>=13.7,<14",
+  "python-dotenv>=1.0,<2",
+  "pypdf>=4.2,<5",
+  "python-docx>=1.1,<2",
+  "playwright>=1.45,<2"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2,<9"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "-q"
+
+[project.scripts]
+auto-job-apply = "auto_job_apply.main:run"
