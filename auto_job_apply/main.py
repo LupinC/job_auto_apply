@@ -337,9 +337,12 @@ def ui(
     try:
         run_ui(host=host, port=port)
         safe_log(logger, logging.INFO, "action_completed", action="ui", host=host, port=port)
+    except KeyboardInterrupt:
+        safe_log(logger, logging.INFO, "action_cancelled", action="ui", reason="keyboard_interrupt")
+        raise typer.Exit(code=130)
     except RuntimeError as exc:
         safe_log(logger, logging.ERROR, "action_failed", action="ui", reason=str(exc))
-        raise typer.BadParameter("Streamlit is not installed. Install with: pip install streamlit") from exc
+        raise typer.BadParameter(str(exc)) from exc
 
 
 def _row_to_job(row: dict):

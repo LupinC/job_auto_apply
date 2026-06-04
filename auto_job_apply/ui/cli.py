@@ -2,15 +2,12 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import subprocess
 import sys
 
 
 def run_ui(host: str = "127.0.0.1", port: int = 8501) -> None:
 	ui_entry = Path(__file__).resolve().parent / "streamlit_app.py"
-	cmd = [
-		sys.executable,
-		"-m",
+	argv = [
 		"streamlit",
 		"run",
 		str(ui_entry),
@@ -21,9 +18,20 @@ def run_ui(host: str = "127.0.0.1", port: int = 8501) -> None:
 	]
 
 	try:
-		subprocess.run(cmd, check=True)
-	except FileNotFoundError as exc:
+		from streamlit.web import cli as stcli
+	except ModuleNotFoundError as exc:
 		raise RuntimeError("Streamlit is not installed. Install with: pip install streamlit") from exc
+
+	prev_argv = sys.argv[:]
+	try:
+		sys.argv = argv
+		stcli.main()
+	except SystemExit as exc:
+		code = 0 if exc.code is None else int(exc.code)
+		if code not in (0, 130):
+			raise RuntimeError(f"Streamlit exited with code {code}") from exc
+	finally:
+		sys.argv = prev_argv
 
 
 def main() -> None:
