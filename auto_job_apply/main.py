@@ -18,6 +18,7 @@ from auto_job_apply.models.answers import AnswerBank, AnswerEntry
 from auto_job_apply.resume.parser import parse_resume
 from auto_job_apply.storage.json_store import read_json, write_json
 from auto_job_apply.storage.jsonl_store import append_jsonl, read_jsonl
+from auto_job_apply.storage.cleanup import clear_data_dir
 from auto_job_apply.storage.paths import AppPaths
 from auto_job_apply.storage.report_writer import write_report
 from auto_job_apply.safety.secrets import mask_api_key
@@ -290,10 +291,32 @@ def clear_data(yes: bool = typer.Option(False, "--yes", help="Skip confirmation"
     paths = AppPaths(cfg.data_dir)
     if not yes and not typer.confirm(f"Delete local data at {cfg.data_dir}?", default=False):
         raise typer.Exit(code=0)
+    blocked: list[str] = []
+    used_windows_fallback = False
     if paths.data_dir.exists():
-        shutil.rmtree(paths.data_dir)
-    print("[green]Local data cleared.[/green]")
-    safe_log(logger, logging.INFO, "action_completed", action="clear-data", data_dir=cfg.data_dir)
+        result = clear_data_dir(paths.data_dir)
+        blocked = result.blocked_paths
+        used_windows_fallback = result.used_windows_fallback
+
+    if blocked:
+        print("[yellow]Local data partially cleared. Some files/folders are locked by another process.[/yellow]")
+        for path in blocked[:10]:
+            print(f"[yellow]- {path}[/yellow]")
+        print("[yellow]Close any browser using data/browser_profile and run clear-data again.[/yellow]")
+    else:
+        print("[green]Local data cleared.[/green]")
+        if used_windows_fallback:
+            print("[blue]Windows fallback cleanup was used.[/blue]")
+
+    safe_log(
+        logger,
+        logging.INFO,
+        "action_completed",
+        action="clear-data",
+        data_dir=cfg.data_dir,
+        blocked_count=len(blocked),
+        used_windows_fallback=used_windows_fallback,
+    )
 
 
 @app.command()

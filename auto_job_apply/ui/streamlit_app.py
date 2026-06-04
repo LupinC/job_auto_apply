@@ -17,9 +17,9 @@ from auto_job_apply.resume.parser import parse_resume
 from auto_job_apply.safety.validation import assert_answer_entry_safe
 from auto_job_apply.storage.json_store import read_json, write_json
 from auto_job_apply.storage.jsonl_store import append_jsonl, read_jsonl
+from auto_job_apply.storage.cleanup import clear_data_dir
 from auto_job_apply.storage.paths import AppPaths
 from auto_job_apply.storage.report_writer import write_report
-import shutil
 
 import logging
 
@@ -308,11 +308,31 @@ def main() -> None:
 		confirm_clear = st.checkbox("I understand this will permanently delete local data")
 		if st.button("Clear local data", disabled=not confirm_clear):
 			safe_log(logger, logging.INFO, "action_started", action="ui_clear_data")
+			blocked: list[str] = []
+			used_windows_fallback = False
 			if paths.data_dir.exists():
-				shutil.rmtree(paths.data_dir)
+				result = clear_data_dir(paths.data_dir)
+				blocked = result.blocked_paths
+				used_windows_fallback = result.used_windows_fallback
 			_bootstrap()
-			st.success("Local data cleared and re-initialized.")
-			safe_log(logger, logging.INFO, "action_completed", action="ui_clear_data")
+			if blocked:
+				st.warning("Local data partially cleared. Some files/folders are locked by another process.")
+				st.dataframe([{"blocked_path": path} for path in blocked[:20]], use_container_width=True)
+				st.info("Close any browser using data/browser_profile, then click Clear local data again.")
+			else:
+				st.success("Local data cleared and re-initialized.")
+				if used_windows_fallback:
+					st.caption("Clear status: used Windows fallback cleanup for OneDrive/reparse-point paths.")
+				else:
+					st.caption("Clear status: standard Python cleanup.")
+			safe_log(
+				logger,
+				logging.INFO,
+				"action_completed",
+				action="ui_clear_data",
+				blocked_count=len(blocked),
+				used_windows_fallback=used_windows_fallback,
+			)
 
 	with tab_profile:
 		st.subheader("Parse resume")
