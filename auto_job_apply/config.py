@@ -34,10 +34,11 @@ def load_config() -> AppConfig:
 
     data_dir_raw = os.getenv("AUTO_JOB_APPLY_DATA_DIR", "./data")
     data_dir = (root / data_dir_raw).resolve() if not Path(data_dir_raw).is_absolute() else Path(data_dir_raw)
+    llm_base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
 
     return AppConfig(
         project_root=root,
         data_dir=data_dir,
         llm_api_key=os.getenv("OPENAI_API_KEY"),
-        llm_base_url=os.getenv("LLM_BASE_URL"),
+        llm_base_url=llm_base_url,
     )

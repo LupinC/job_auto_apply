@@ -10,6 +10,7 @@ from auto_job_apply.config import load_config
 from auto_job_apply.jobs.dedupe import dedupe_jobs
 from auto_job_apply.jobs.discovery import discover_from_manual_urls
 from auto_job_apply.jobs.matcher import rank_jobs
+from auto_job_apply.logging_setup import safe_log, setup_logging
 from auto_job_apply.models.answers import AnswerBank, AnswerEntry
 from auto_job_apply.models.job import Job
 from auto_job_apply.resume.parser import parse_resume
@@ -19,6 +20,11 @@ from auto_job_apply.storage.jsonl_store import append_jsonl, read_jsonl
 from auto_job_apply.storage.paths import AppPaths
 from auto_job_apply.storage.report_writer import write_report
 import shutil
+
+import logging
+
+
+logger = setup_logging()
 
 
 def _row_to_job(row: dict) -> Job:
@@ -31,10 +37,12 @@ def _bootstrap() -> AppPaths:
 	paths.ensure()
 	if not paths.settings_json.exists():
 		write_json(paths.settings_json, {"created_at": datetime.now(UTC).isoformat()})
+	safe_log(logger, logging.INFO, "action_completed", action="ui_bootstrap", data_dir=paths.data_dir)
 	return paths
 
 
 def _save_profile(uploaded_file, paths: AppPaths) -> None:
+	safe_log(logger, logging.INFO, "action_started", action="ui_save_profile", filename=uploaded_file.name)
 	resume_path = paths.data_dir / "resumes" / uploaded_file.name
 	resume_path.parent.mkdir(parents=True, exist_ok=True)
 	resume_path.write_bytes(uploaded_file.getvalue())
@@ -49,9 +57,41 @@ def _save_profile(uploaded_file, paths: AppPaths) -> None:
 			"resume": str(resume_path),
 		},
 	)
+	safe_log(logger, logging.INFO, "action_completed", action="ui_save_profile", profile_path=paths.profile_json)
 
 
-def _default_answer_rows(existing: dict[str, dict]) -> list[tuple[str, str, bool, bool]]:
+def _answer_options() -> dict[str, list[str]]:
+	return {
+		"needs_sponsorship": ["No", "Yes"],
+		"work_authorization": [
+			"Authorized to work in the United States",
+			"Requires visa sponsorship",
+			"Not authorized to work in the United States",
+		],
+		"veteran_status": [
+			"I am not a protected veteran",
+			"I identify as a protected veteran",
+			"I do not wish to answer",
+		],
+		"race_ethnicity": [
+			"American Indian or Alaska Native",
+			"Asian",
+			"Black or African American",
+			"Hispanic or Latino",
+			"Native Hawaiian or Other Pacific Islander",
+			"White",
+			"Two or More Races",
+			"I do not wish to answer",
+		],
+		"disability_status": [
+			"Yes, I have a disability or have had one in the past",
+			"No, I do not have a disability and have not had one in the past",
+			"I do not wish to answer",
+		],
+	}
+
+
+def _default_answer_rows(existing: dict[str, dict]) -> list[tuple[str, str, bool, bool, list[str]]]:
 	defaults: list[tuple[str, str | bool, bool]] = [
 		("needs_sponsorship", False, False),
 		("work_authorization", "Authorized to work in the United States", False),
@@ -59,24 +99,33 @@ def _default_answer_rows(existing: dict[str, dict]) -> list[tuple[str, str, bool
 		("race_ethnicity", "I do not wish to answer", True),
 		("disability_status", "I do not wish to answer", True),
 	]
+	options_map = _answer_options()
 
-	rows: list[tuple[str, str, bool, bool]] = []
+	rows: list[tuple[str, str, bool, bool, list[str]]] = []
 	for key, default_value, sensitive in defaults:
 		current = existing.get(key, {})
-		val = current.get("value", default_value)
+		raw_val = current.get("value", default_value)
+		if key == "needs_sponsorship":
+			val = "Yes" if bool(raw_val) else "No"
+		else:
+			val = str(raw_val)
 		approved = bool(current.get("user_approved_reuse", False))
-		rows.append((key, str(val), sensitive, approved))
+		options = list(options_map.get(key, []))
+		if val not in options:
+			options = [val, *options]
+		rows.append((key, val, sensitive, approved, options))
 	return rows
 
 
 def _save_answers(paths: AppPaths, payload: dict[str, tuple[str, bool, bool]]) -> None:
+	safe_log(logger, logging.INFO, "action_started", action="ui_save_answers", key_count=len(payload))
 	existing = read_json(paths.answer_bank_json, default={})
 	bank = AnswerBank(answers={k: AnswerEntry(**v) for k, v in existing.items()} if existing else {})
 
 	for key, (raw_value, is_sensitive, approved) in payload.items():
 		parsed_value: str | bool
 		if key == "needs_sponsorship":
-			parsed_value = raw_value.strip().lower() in {"true", "1", "yes", "y"}
+			parsed_value = raw_value.strip().lower() == "yes"
 		else:
 			parsed_value = raw_value
 
@@ -85,37 +134,54 @@ def _save_answers(paths: AppPaths, payload: dict[str, tuple[str, bool, bool]]) -
 		bank.upsert(key, entry)
 
 	write_json(paths.answer_bank_json, {k: v.model_dump(mode="json") for k, v in bank.answers.items()})
+	safe_log(logger, logging.INFO, "action_completed", action="ui_save_answers", answer_count=len(bank.answers))
 
 
 def _discover_jobs(paths: AppPaths, title: str, urls: list[str]) -> int:
+	safe_log(logger, logging.INFO, "action_started", action="ui_discover", title=title, url_count=len(urls))
 	jobs = discover_from_manual_urls(title=title, urls=urls)
 	unique = dedupe_jobs(jobs)
 	for job in unique:
 		append_jsonl(paths.jobs_discovered_jsonl, job.model_dump(mode="json"))
+	safe_log(logger, logging.INFO, "action_completed", action="ui_discover", discovered=len(unique))
 	return len(unique)
 
 
-def _apply_jobs(paths: AppPaths, title: str, max_applications: int, approved_urls: set[str]) -> int:
+def _apply_jobs(paths: AppPaths, title: str, max_applications: int, approved_urls: set[str]) -> tuple[int, int]:
+	safe_log(
+		logger,
+		logging.INFO,
+		"action_started",
+		action="ui_apply",
+		title=title,
+		max_applications=max_applications,
+		approved_count=len(approved_urls),
+	)
 	discovered_rows = read_jsonl(paths.jobs_discovered_jsonl)
 	ranked = rank_jobs([_row_to_job(r) for r in discovered_rows], target_title=title)
 	ranked = dedupe_jobs(ranked)
 
 	successful = 0
+	approved_pending_submit = 0
 	for job in ranked:
-		if successful >= max_applications:
+		if approved_pending_submit >= max_applications:
 			break
 
 		approved = str(job.url) in approved_urls
-		status = "submitted" if approved else "user_skipped"
 		if approved:
-			successful += 1
+			status = "needs_user"
+			reason = "Approved for manual submission; automated submit not available in v0"
+			approved_pending_submit += 1
+		else:
+			status = "user_skipped"
+			reason = "User declined submit"
 
 		attempt = build_application_attempt(
 			company=job.company,
 			title=job.title,
 			url=str(job.url),
 			status=status,
-			reason=None if approved else "User declined submit",
+			reason=reason,
 		)
 		append_jsonl(paths.applications_jsonl, attempt.model_dump(mode="json"))
 		append_jsonl(
@@ -128,13 +194,34 @@ def _apply_jobs(paths: AppPaths, title: str, max_applications: int, approved_url
 				"title": job.title,
 				"url": str(job.url),
 				"status": status,
+				"reason": reason,
 			},
 		)
 
-	return successful
+		safe_log(
+			logger,
+			logging.INFO,
+			"application_recorded",
+			title=job.title,
+			company=job.company,
+			url=job.url,
+			status=status,
+			reason=reason,
+		)
+
+	safe_log(
+		logger,
+		logging.INFO,
+		"action_completed",
+		action="ui_apply",
+		successful=successful,
+		approved_pending_submit=approved_pending_submit,
+	)
+	return successful, approved_pending_submit
 
 
 def _write_report(paths: AppPaths, title: str, requested: int) -> Path:
+	safe_log(logger, logging.INFO, "action_started", action="ui_report", title=title, requested=requested)
 	rows = read_jsonl(paths.applications_jsonl)
 	successful = sum(1 for r in rows if r.get("status") == "submitted")
 	skipped = sum(1 for r in rows if r.get("status") in {"user_skipped", "skipped_low_match", "skipped_duplicate"})
@@ -152,7 +239,7 @@ def _write_report(paths: AppPaths, title: str, requested: int) -> Path:
 		for r in rows
 	]
 
-	return write_report(
+	report_path = write_report(
 		reports_dir=paths.reports_dir,
 		title=title,
 		requested=requested,
@@ -162,6 +249,8 @@ def _write_report(paths: AppPaths, title: str, requested: int) -> Path:
 		needs_user=needs_user,
 		rows=table_rows,
 	)
+	safe_log(logger, logging.INFO, "action_completed", action="ui_report", report_path=report_path)
+	return report_path
 
 
 def main() -> None:
@@ -179,6 +268,7 @@ def main() -> None:
 	with tab_setup:
 		st.subheader("Initialize local data")
 		if st.button("Initialize", type="primary"):
+			safe_log(logger, logging.INFO, "action_started", action="ui_initialize_button")
 			_bootstrap()
 			st.success("Initialized data directories and settings.")
 
@@ -191,10 +281,12 @@ def main() -> None:
 		st.subheader("Danger zone")
 		confirm_clear = st.checkbox("I understand this will permanently delete local data")
 		if st.button("Clear local data", disabled=not confirm_clear):
+			safe_log(logger, logging.INFO, "action_started", action="ui_clear_data")
 			if paths.data_dir.exists():
 				shutil.rmtree(paths.data_dir)
 			_bootstrap()
 			st.success("Local data cleared and re-initialized.")
+			safe_log(logger, logging.INFO, "action_completed", action="ui_clear_data")
 
 	with tab_profile:
 		st.subheader("Parse resume")
@@ -210,9 +302,9 @@ def main() -> None:
 		answer_payload: dict[str, tuple[str, bool, bool]] = {}
 
 		with st.form("answers_form"):
-			for key, value, sensitive, approved in rows:
+			for key, value, sensitive, approved, options in rows:
 				c1, c2 = st.columns([3, 2])
-				raw_value = c1.text_input(f"{key} value", value=value)
+				raw_value = c1.selectbox(f"{key} value", options=options, index=options.index(value))
 				approve = c2.checkbox(f"Allow reuse for {key}", value=approved)
 				answer_payload[key] = (raw_value, sensitive, approve)
 
@@ -251,13 +343,15 @@ def main() -> None:
 		selected = st.multiselect(
 			"Select jobs you approve for submit",
 			options=ranked_options,
-			help="Only selected URLs will be marked as submitted; all other processed jobs are recorded as user_skipped.",
+			help="Selected URLs are recorded as needs_user (approved and pending manual submit); all others are recorded as user_skipped.",
 		)
 
 		if st.button("Run apply", type="primary", disabled=not ranked_options):
 			approved_urls = {item.split(" | ")[-1] for item in selected}
-			successful = _apply_jobs(paths, title=title, max_applications=int(max_apps), approved_urls=approved_urls)
+			successful, pending = _apply_jobs(paths, title=title, max_applications=int(max_apps), approved_urls=approved_urls)
 			st.success(f"Apply run complete. Successful submissions: {successful}")
+			if pending:
+				st.warning(f"Approved for manual submit (pending your action): {pending}")
 
 		app_rows = read_jsonl(paths.applications_jsonl)
 		if app_rows:

@@ -30,6 +30,7 @@ logger = setup_logging()
 
 @app.command()
 def init() -> None:
+    safe_log(logger, logging.INFO, "action_started", action="init")
     cfg = load_config()
     paths = AppPaths(cfg.data_dir)
     paths.ensure()
@@ -38,10 +39,12 @@ def init() -> None:
         write_json(paths.settings_json, {"created_at": datetime.now(UTC).isoformat()})
 
     print(f"[green]Initialized data dir:[/green] {cfg.data_dir}")
+    safe_log(logger, logging.INFO, "action_completed", action="init", data_dir=cfg.data_dir)
 
 
 @app.command()
 def profile(resume: Path = typer.Option(..., exists=True, file_okay=True, dir_okay=False)) -> None:
+    safe_log(logger, logging.INFO, "action_started", action="profile", resume=resume)
     cfg = load_config()
     paths = AppPaths(cfg.data_dir)
     paths.ensure()
@@ -58,10 +61,12 @@ def profile(resume: Path = typer.Option(..., exists=True, file_okay=True, dir_ok
         },
     )
     print(f"[green]Profile saved:[/green] {paths.profile_json}")
+    safe_log(logger, logging.INFO, "action_completed", action="profile", profile_path=paths.profile_json)
 
 
 @app.command()
 def answers() -> None:
+    safe_log(logger, logging.INFO, "action_started", action="answers")
     cfg = load_config()
     paths = AppPaths(cfg.data_dir)
     paths.ensure()
@@ -97,6 +102,7 @@ def answers() -> None:
         {k: v.model_dump(mode="json") for k, v in bank.answers.items()},
     )
     print(f"[green]Answer bank saved:[/green] {paths.answer_bank_json}")
+    safe_log(logger, logging.INFO, "action_completed", action="answers", answer_count=len(bank.answers))
 
 
 @app.command()
@@ -104,6 +110,7 @@ def discover(
     title: str = typer.Option(..., help="Target title"),
     url: list[str] = typer.Option([], help="Manual job URL, can be repeated"),
 ) -> None:
+    safe_log(logger, logging.INFO, "action_started", action="discover", title=title, url_count=len(url))
     cfg = load_config()
     paths = AppPaths(cfg.data_dir)
     paths.ensure()
@@ -114,6 +121,7 @@ def discover(
         append_jsonl(paths.jobs_discovered_jsonl, job.model_dump(mode="json"))
 
     print(f"[green]Discovered jobs saved:[/green] {len(unique)}")
+    safe_log(logger, logging.INFO, "action_completed", action="discover", discovered=len(unique))
 
 
 @app.command()
@@ -122,6 +130,15 @@ def apply(
     max_applications: int = typer.Option(1, min=1),
     auto_approve_submit: bool = typer.Option(False, help="Test-only shortcut"),
 ) -> None:
+    safe_log(
+        logger,
+        logging.INFO,
+        "action_started",
+        action="apply",
+        title=title,
+        max_applications=max_applications,
+        auto_approve_submit=auto_approve_submit,
+    )
     cfg = load_config()
     paths = AppPaths(cfg.data_dir)
     paths.ensure()
@@ -135,8 +152,9 @@ def apply(
     ranked = dedupe_jobs(ranked)
 
     successful = 0
+    approved_pending_submit = 0
     for job in ranked:
-        if successful >= max_applications:
+        if approved_pending_submit >= max_applications:
             break
 
         if not auto_approve_submit:
@@ -145,16 +163,20 @@ def apply(
         else:
             approved = True
 
-        status = "submitted" if approved else "user_skipped"
-        if status == "submitted":
-            successful += 1
+        if approved:
+            status = "needs_user"
+            reason = "Approved for manual submission; automated submit not available in v0"
+            approved_pending_submit += 1
+        else:
+            status = "user_skipped"
+            reason = "User declined submit"
 
         attempt = build_application_attempt(
             company=job.company,
             title=job.title,
             url=str(job.url),
             status=status,
-            reason=None if approved else "User declined submit",
+            reason=reason,
         )
         append_jsonl(paths.applications_jsonl, attempt.model_dump(mode="json"))
         append_jsonl(
@@ -167,10 +189,31 @@ def apply(
                 "title": job.title,
                 "url": str(job.url),
                 "status": status,
+                "reason": reason,
             },
         )
 
+        safe_log(
+            logger,
+            logging.INFO,
+            "application_recorded",
+            title=job.title,
+            company=job.company,
+            url=job.url,
+            status=status,
+            reason=reason,
+        )
+
     print(f"[green]Apply run complete. Successful submissions:[/green] {successful}")
+    print(f"[yellow]Approved for manual submit (pending user action):[/yellow] {approved_pending_submit}")
+    safe_log(
+        logger,
+        logging.INFO,
+        "action_completed",
+        action="apply",
+        successful=successful,
+        approved_pending_submit=approved_pending_submit,
+    )
 
 
 @app.command()
@@ -178,6 +221,7 @@ def report(
     title: str = typer.Option(...),
     requested: int = typer.Option(..., min=1),
 ) -> None:
+    safe_log(logger, logging.INFO, "action_started", action="report", title=title, requested=requested)
     cfg = load_config()
     paths = AppPaths(cfg.data_dir)
     paths.ensure()
@@ -210,10 +254,12 @@ def report(
         rows=table_rows,
     )
     print(f"[green]Report saved:[/green] {report_path}")
+    safe_log(logger, logging.INFO, "action_completed", action="report", report_path=report_path)
 
 
 @app.command("clear-data")
 def clear_data(yes: bool = typer.Option(False, "--yes", help="Skip confirmation")) -> None:
+    safe_log(logger, logging.INFO, "action_started", action="clear-data", yes=yes)
     cfg = load_config()
     paths = AppPaths(cfg.data_dir)
     if not yes and not typer.confirm(f"Delete local data at {cfg.data_dir}?", default=False):
@@ -221,13 +267,16 @@ def clear_data(yes: bool = typer.Option(False, "--yes", help="Skip confirmation"
     if paths.data_dir.exists():
         shutil.rmtree(paths.data_dir)
     print("[green]Local data cleared.[/green]")
+    safe_log(logger, logging.INFO, "action_completed", action="clear-data", data_dir=cfg.data_dir)
 
 
 @app.command()
 def show_config() -> None:
+    safe_log(logger, logging.INFO, "action_started", action="show-config")
     cfg = load_config()
     safe_log(logger, logging.INFO, "Config loaded", data_dir=cfg.data_dir, llm_api_key=mask_api_key(cfg.llm_api_key))
     print({"data_dir": str(cfg.data_dir), "llm_base_url": cfg.llm_base_url})
+    safe_log(logger, logging.INFO, "action_completed", action="show-config")
 
 
 @app.command()
@@ -235,9 +284,12 @@ def ui(
     host: str = typer.Option("127.0.0.1", help="Streamlit host"),
     port: int = typer.Option(8501, min=1, max=65535, help="Streamlit port"),
 ) -> None:
+    safe_log(logger, logging.INFO, "action_started", action="ui", host=host, port=port)
     try:
         run_ui(host=host, port=port)
+        safe_log(logger, logging.INFO, "action_completed", action="ui", host=host, port=port)
     except RuntimeError as exc:
+        safe_log(logger, logging.ERROR, "action_failed", action="ui", reason=str(exc))
         raise typer.BadParameter("Streamlit is not installed. Install with: pip install streamlit") from exc
 
 
