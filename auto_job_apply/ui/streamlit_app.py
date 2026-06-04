@@ -6,6 +6,7 @@ import webbrowser
 
 import streamlit as st
 
+from auto_job_apply.apply.adapters.autofill import run_autofill, supports_url as supports_autofill_url
 from auto_job_apply.apply.runner import build_application_attempt
 from auto_job_apply.config import load_config
 from auto_job_apply.jobs.dedupe import dedupe_jobs
@@ -172,7 +173,13 @@ def _discover_jobs(paths: AppPaths, title: str, urls: list[str]) -> int:
 	return len(unique)
 
 
-def _apply_jobs(paths: AppPaths, title: str, max_applications: int, approved_urls: set[str]) -> tuple[int, int]:
+def _apply_jobs(
+	paths: AppPaths,
+	title: str,
+	max_applications: int,
+	approved_urls: set[str],
+	enable_autofill: bool,
+) -> tuple[int, int]:
 	safe_log(
 		logger,
 		logging.INFO,
@@ -186,6 +193,7 @@ def _apply_jobs(paths: AppPaths, title: str, max_applications: int, approved_url
 	ranked = rank_jobs([_row_to_job(r) for r in discovered_rows], target_title=title)
 	ranked = dedupe_jobs(ranked)
 	resume_path = _resolve_resume_path(paths)
+	profile = read_json(paths.profile_json, default={})
 
 	successful = 0
 	approved_pending_submit = 0
@@ -195,10 +203,36 @@ def _apply_jobs(paths: AppPaths, title: str, max_applications: int, approved_url
 
 		approved = str(job.url) in approved_urls
 		if approved:
-			status = "needs_user"
-			reason = "Approved for manual submission; automated submit not available in v0"
+			screenshot_path: str | None = None
+			if enable_autofill and supports_autofill_url(str(job.url)):
+				result = run_autofill(
+					url=str(job.url),
+					browser_profile_dir=paths.browser_profile_dir,
+					screenshots_dir=paths.screenshots_dir,
+					first_name=profile.get("first_name"),
+					last_name=profile.get("last_name"),
+					email=profile.get("email"),
+					phone=profile.get("phone"),
+					linkedin=profile.get("linkedin"),
+					resume_path=resume_path,
+					headless=False,
+				)
+				screenshot_path = result.screenshot_path
+				if result.ok:
+					status = "needs_user"
+					reason = (
+						f"Autofill completed (fields={result.filled_fields}, resume_uploaded={result.uploaded_resume}). "
+						"Review in browser and submit manually."
+					)
+				else:
+					status = "needs_user"
+					reason = f"Autofill attempted but incomplete: {result.error}. Continue manually."
+			else:
+				status = "needs_user"
+				reason = "Approved for manual submission; autofill unavailable for this URL"
 			approved_pending_submit += 1
 		else:
+			screenshot_path = None
 			status = "user_skipped"
 			reason = "User declined submit"
 
@@ -209,6 +243,7 @@ def _apply_jobs(paths: AppPaths, title: str, max_applications: int, approved_url
 			status=status,
 			reason=reason,
 			resume_path=resume_path,
+			screenshot_path=screenshot_path,
 		)
 		append_jsonl(paths.applications_jsonl, attempt.model_dump(mode="json"))
 		append_jsonl(
@@ -378,11 +413,12 @@ def main() -> None:
 	with tab_apply:
 		st.subheader("Human-approved apply run")
 		st.warning(
-			"v0 does not auto-fill website forms yet (including Asana/Greenhouse-hosted apply pages). "
-			"Run apply records approved links as needs_user for manual completion."
+			"Autofill is beta and currently targets supported Asana-style apply forms. "
+			"Run apply still requires your final manual submit confirmation."
 		)
 		title = st.text_input("Target title", value="Software Engineer II", key="apply_title")
 		max_apps = st.number_input("Max applications", min_value=1, value=1, step=1)
+		enable_autofill = st.checkbox("Enable autofill for supported links", value=True)
 
 		discovered_rows = read_jsonl(paths.jobs_discovered_jsonl)
 		ranked_options: list[str] = []
@@ -427,7 +463,13 @@ def main() -> None:
 			st.info("Pick jobs and click 'Approve selected for manual submit' before running apply.")
 
 		if st.button("Run apply", type="primary", disabled=not ranked_options or not approved_urls):
-			successful, pending = _apply_jobs(paths, title=title, max_applications=int(max_apps), approved_urls=approved_urls)
+			successful, pending = _apply_jobs(
+				paths,
+				title=title,
+				max_applications=int(max_apps),
+				approved_urls=approved_urls,
+				enable_autofill=enable_autofill,
+			)
 			st.success(f"Apply run complete. Successful submissions: {successful}")
 			if pending:
 				st.warning(f"Approved for manual submit (pending your action): {pending}")

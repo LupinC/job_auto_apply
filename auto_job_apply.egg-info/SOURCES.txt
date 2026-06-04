@@ -20,8 +20,8 @@ auto_job_apply/apply/runner.py
 auto_job_apply/apply/submission.py
 auto_job_apply/apply/adapters/__init__.py
 auto_job_apply/apply/adapters/ashby.py
+auto_job_apply/apply/adapters/autofill.py
 auto_job_apply/apply/adapters/generic.py
-auto_job_apply/apply/adapters/greenhouse.py
 auto_job_apply/apply/adapters/lever.py
 auto_job_apply/browser/__init__.py
 auto_job_apply/browser/human_pause.py
@@ -36,7 +36,6 @@ auto_job_apply/jobs/matcher.py
 auto_job_apply/jobs/normalizer.py
 auto_job_apply/jobs/sources/__init__.py
 auto_job_apply/jobs/sources/ashby.py
-auto_job_apply/jobs/sources/greenhouse.py
 auto_job_apply/jobs/sources/lever.py
 auto_job_apply/jobs/sources/manual.py
 auto_job_apply/jobs/sources/search_engine.py

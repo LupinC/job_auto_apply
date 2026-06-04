@@ -197,7 +197,6 @@ auto-job-apply/
       sources/
         __init__.py
         manual.py
-        greenhouse.py
         lever.py
         ashby.py
         search_engine.py
@@ -220,7 +219,7 @@ auto-job-apply/
       adapters/
         __init__.py
         generic.py
-        greenhouse.py
+        autofill.py
         lever.py
         ashby.py
 
@@ -335,7 +334,7 @@ Stores user-approved reusable answers:
 Append one job per line:
 
 ```json
-{"ts":"2026-06-03T12:00:00Z","source":"greenhouse","company":"Acme","title":"Software Engineer II","location":"Remote","url":"https://...","apply_url":"https://...","status":"discovered"}
+{"ts":"2026-06-03T12:00:00Z","source":"manual","company":"Acme","title":"Software Engineer II","location":"Remote","url":"https://...","apply_url":"https://...","status":"discovered"}
 ```
 
 #### `applications.jsonl`
@@ -551,7 +550,7 @@ Recommended source order:
 
 1. Manual job URLs.
 2. Company seed list.
-3. Greenhouse-style job boards.
+3. ATS-hosted job boards.
 4. Lever-style job boards.
 5. Ashby-style job boards.
 6. Search API, only if permitted and configured.
@@ -1437,7 +1436,7 @@ Discover jobs from supported ATS sources.
 
 Add:
 
-- Greenhouse source adapter.
+- ATS source adapter.
 - Lever source adapter.
 - Ashby source adapter.
 - Company seed list.
