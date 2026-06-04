@@ -27,6 +27,30 @@ import logging
 logger = setup_logging()
 
 
+def _resolve_resume_path(paths: AppPaths) -> str | None:
+	events = read_jsonl(paths.events_jsonl)
+	for row in reversed(events):
+		if row.get("event") != "profile_updated":
+			continue
+		resume = row.get("resume")
+		if not resume:
+			continue
+		candidate = Path(str(resume))
+		if candidate.exists():
+			return str(candidate)
+
+	resumes_dir = paths.data_dir / "resumes"
+	if not resumes_dir.exists():
+		return None
+
+	files = [p for p in resumes_dir.iterdir() if p.is_file()]
+	if not files:
+		return None
+
+	latest = max(files, key=lambda p: p.stat().st_mtime)
+	return str(latest)
+
+
 def _row_to_job(row: dict) -> Job:
 	return Job(**row)
 
@@ -160,6 +184,7 @@ def _apply_jobs(paths: AppPaths, title: str, max_applications: int, approved_url
 	discovered_rows = read_jsonl(paths.jobs_discovered_jsonl)
 	ranked = rank_jobs([_row_to_job(r) for r in discovered_rows], target_title=title)
 	ranked = dedupe_jobs(ranked)
+	resume_path = _resolve_resume_path(paths)
 
 	successful = 0
 	approved_pending_submit = 0
@@ -182,6 +207,7 @@ def _apply_jobs(paths: AppPaths, title: str, max_applications: int, approved_url
 			url=str(job.url),
 			status=status,
 			reason=reason,
+			resume_path=resume_path,
 		)
 		append_jsonl(paths.applications_jsonl, attempt.model_dump(mode="json"))
 		append_jsonl(
@@ -343,11 +369,33 @@ def main() -> None:
 		selected = st.multiselect(
 			"Select jobs you approve for submit",
 			options=ranked_options,
+			key="apply_selected_jobs",
 			help="Selected URLs are recorded as needs_user (approved and pending manual submit); all others are recorded as user_skipped.",
 		)
 
-		if st.button("Run apply", type="primary", disabled=not ranked_options):
-			approved_urls = {item.split(" | ")[-1] for item in selected}
+		if "approved_urls" not in st.session_state:
+			st.session_state["approved_urls"] = []
+
+		def _extract_url(option: str) -> str:
+			return option.rsplit(" | ", 1)[-1]
+
+		approve_col, clear_col = st.columns(2)
+		if approve_col.button("Approve selected for manual submit", disabled=not selected):
+			current = set(st.session_state.get("approved_urls", []))
+			current.update(_extract_url(item) for item in selected)
+			st.session_state["approved_urls"] = sorted(current)
+
+		if clear_col.button("Clear approved list", disabled=not st.session_state.get("approved_urls")):
+			st.session_state["approved_urls"] = []
+
+		approved_urls = set(st.session_state.get("approved_urls", []))
+		st.caption(f"Approved URLs ready for apply: {len(approved_urls)}")
+		if approved_urls:
+			st.dataframe([{"approved_url": url} for url in sorted(approved_urls)], use_container_width=True)
+		else:
+			st.info("Pick jobs and click 'Approve selected for manual submit' before running apply.")
+
+		if st.button("Run apply", type="primary", disabled=not ranked_options or not approved_urls):
 			successful, pending = _apply_jobs(paths, title=title, max_applications=int(max_apps), approved_urls=approved_urls)
 			st.success(f"Apply run complete. Successful submissions: {successful}")
 			if pending:

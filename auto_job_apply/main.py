@@ -28,6 +28,30 @@ app = typer.Typer(help="Auto Job Apply local-first v0")
 logger = setup_logging()
 
 
+def _resolve_resume_path(paths: AppPaths) -> str | None:
+    events = read_jsonl(paths.events_jsonl)
+    for row in reversed(events):
+        if row.get("event") != "profile_updated":
+            continue
+        resume = row.get("resume")
+        if not resume:
+            continue
+        candidate = Path(str(resume))
+        if candidate.exists():
+            return str(candidate)
+
+    resumes_dir = paths.data_dir / "resumes"
+    if not resumes_dir.exists():
+        return None
+
+    files = [p for p in resumes_dir.iterdir() if p.is_file()]
+    if not files:
+        return None
+
+    latest = max(files, key=lambda p: p.stat().st_mtime)
+    return str(latest)
+
+
 @app.command()
 def init() -> None:
     safe_log(logger, logging.INFO, "action_started", action="init")
@@ -151,6 +175,7 @@ def apply(
     ranked = rank_jobs([_row_to_job(r) for r in discovered_rows], target_title=title)
     ranked = dedupe_jobs(ranked)
 
+    resume_path = _resolve_resume_path(paths)
     successful = 0
     approved_pending_submit = 0
     for job in ranked:
@@ -177,6 +202,7 @@ def apply(
             url=str(job.url),
             status=status,
             reason=reason,
+            resume_path=resume_path,
         )
         append_jsonl(paths.applications_jsonl, attempt.model_dump(mode="json"))
         append_jsonl(
