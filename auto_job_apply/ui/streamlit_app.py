@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+import webbrowser
 
 import streamlit as st
 
@@ -376,6 +377,10 @@ def main() -> None:
 
 	with tab_apply:
 		st.subheader("Human-approved apply run")
+		st.warning(
+			"v0 does not auto-fill website forms yet (including Asana/Greenhouse-hosted apply pages). "
+			"Run apply records approved links as needs_user for manual completion."
+		)
 		title = st.text_input("Target title", value="Software Engineer II", key="apply_title")
 		max_apps = st.number_input("Max applications", min_value=1, value=1, step=1)
 
@@ -412,6 +417,12 @@ def main() -> None:
 		st.caption(f"Approved URLs ready for apply: {len(approved_urls)}")
 		if approved_urls:
 			st.dataframe([{"approved_url": url} for url in sorted(approved_urls)], use_container_width=True)
+			if st.button("Open approved links in browser"):
+				opened = 0
+				for url in sorted(approved_urls):
+					if webbrowser.open_new_tab(url):
+						opened += 1
+				st.info(f"Opened {opened} approved link(s) in your default browser for manual form completion.")
 		else:
 			st.info("Pick jobs and click 'Approve selected for manual submit' before running apply.")
 

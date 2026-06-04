@@ -11,6 +11,7 @@ Local-first, human-supervised job application PoC.
 - Basic matching and dedupe for manual jobs.
 - Safe event/application logging with API key redaction.
 - User-approved submission workflow (no autonomous submit).
+- Apply run records approvals only; it does not auto-fill third-party job forms yet (including Asana/Greenhouse-hosted pages).
 - Final local markdown report in `data/reports/`.
 
 ## Install
