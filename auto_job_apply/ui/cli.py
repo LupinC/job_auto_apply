@@ -4,6 +4,8 @@ import argparse
 from pathlib import Path
 import sys
 
+from auto_job_apply.apply.adapters.autofill import request_shutdown as request_autofill_shutdown
+
 
 def run_ui(host: str = "127.0.0.1", port: int = 8501) -> None:
 	ui_entry = Path(__file__).resolve().parent / "streamlit_app.py"
@@ -31,6 +33,7 @@ def run_ui(host: str = "127.0.0.1", port: int = 8501) -> None:
 		if code not in (0, 130):
 			raise RuntimeError(f"Streamlit exited with code {code}") from exc
 	finally:
+		request_autofill_shutdown()
 		sys.argv = prev_argv
 
 

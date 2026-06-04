@@ -6,7 +6,7 @@ import webbrowser
 
 import streamlit as st
 
-from auto_job_apply.apply.adapters.autofill import run_autofill, supports_url as supports_autofill_url
+from auto_job_apply.apply.adapters.autofill import run_autofill
 from auto_job_apply.apply.runner import build_application_attempt
 from auto_job_apply.config import load_config
 from auto_job_apply.jobs.dedupe import dedupe_jobs
@@ -204,32 +204,63 @@ def _apply_jobs(
 		approved = str(job.url) in approved_urls
 		if approved:
 			screenshot_path: str | None = None
-			if enable_autofill and supports_autofill_url(str(job.url)):
+			if enable_autofill:
+				# Extract the freshest data from the resume so autofill uses current info
+				resume_profile = {}
+				if resume_path:
+					try:
+						parsed = parse_resume(Path(resume_path))
+						resume_profile = parsed.model_dump(mode="json")
+					except Exception:
+						pass  # fall back to saved profile below
+				# Merge: profile.json fills gaps not found in resume
+				merged = {**profile, **{k: v for k, v in resume_profile.items() if v}}
+
 				result = run_autofill(
 					url=str(job.url),
 					browser_profile_dir=paths.browser_profile_dir,
 					screenshots_dir=paths.screenshots_dir,
-					first_name=profile.get("first_name"),
-					last_name=profile.get("last_name"),
-					email=profile.get("email"),
-					phone=profile.get("phone"),
-					linkedin=profile.get("linkedin"),
+					first_name=merged.get("first_name"),
+					last_name=merged.get("last_name"),
+					email=merged.get("email"),
+					phone=merged.get("phone"),
+					linkedin=merged.get("linkedin"),
 					resume_path=resume_path,
 					headless=False,
 				)
 				screenshot_path = result.screenshot_path
-				if result.ok:
+
+				if result.error and "playwright install" in result.error.lower():
+					st.error(
+						"**Playwright browser not installed.**\n\n"
+						"Run this command in your terminal, then try again:\n\n"
+						"```\npython -m playwright install chromium\n```"
+					)
+					status = "needs_user"
+					reason = f"Autofill failed: {result.error}"
+				elif result.error:
+					st.warning(f"Autofill error: {result.error}")
+					status = "needs_user"
+					reason = f"Autofill error: {result.error}. Continue manually."
+				else:
+					skipped_msg = ""
+					if result.skipped_fields:
+						skipped_msg = f" Could not fill: {', '.join(result.skipped_fields)}."
+					st.success(
+						f"Autofill done — filled {result.filled_fields} field(s), "
+						f"resume uploaded: {result.uploaded_resume}.{skipped_msg}\n\n"
+						"**The browser is open. Review the form and click Submit.**"
+					)
 					status = "needs_user"
 					reason = (
-						f"Autofill completed (fields={result.filled_fields}, resume_uploaded={result.uploaded_resume}). "
-						"Review in browser and submit manually."
+						f"Autofill filled {result.filled_fields} field(s), "
+						f"resume_uploaded={result.uploaded_resume}"
+						+ (f", skipped: {', '.join(result.skipped_fields)}" if result.skipped_fields else "")
+						+ ". Pending manual submit."
 					)
-				else:
-					status = "needs_user"
-					reason = f"Autofill attempted but incomplete: {result.error}. Continue manually."
 			else:
 				status = "needs_user"
-				reason = "Approved for manual submission; autofill unavailable for this URL"
+				reason = "Autofill disabled; approved for manual submission"
 			approved_pending_submit += 1
 		else:
 			screenshot_path = None
@@ -353,7 +384,7 @@ def main() -> None:
 			_bootstrap()
 			if blocked:
 				st.warning("Local data partially cleared. Some files/folders are locked by another process.")
-				st.dataframe([{"blocked_path": path} for path in blocked[:20]], use_container_width=True)
+				st.dataframe([{"blocked_path": path} for path in blocked[:20]], width="stretch")
 				st.info("Close any browser using data/browser_profile, then click Clear local data again.")
 			else:
 				st.success("Local data cleared and re-initialized.")
@@ -408,7 +439,7 @@ def main() -> None:
 		discovered_rows = read_jsonl(paths.jobs_discovered_jsonl)
 		if discovered_rows:
 			st.caption(f"Stored discovered jobs: {len(discovered_rows)}")
-			st.dataframe(discovered_rows, use_container_width=True)
+			st.dataframe(discovered_rows, width="stretch")
 
 	with tab_apply:
 		st.subheader("Human-approved apply run")
@@ -418,7 +449,7 @@ def main() -> None:
 		)
 		title = st.text_input("Target title", value="Software Engineer II", key="apply_title")
 		max_apps = st.number_input("Max applications", min_value=1, value=1, step=1)
-		enable_autofill = st.checkbox("Enable autofill for supported links", value=True)
+		enable_autofill = st.checkbox("Enable autofill (fills form fields from your resume)", value=True)
 
 		discovered_rows = read_jsonl(paths.jobs_discovered_jsonl)
 		ranked_options: list[str] = []
@@ -452,7 +483,7 @@ def main() -> None:
 		approved_urls = set(st.session_state.get("approved_urls", []))
 		st.caption(f"Approved URLs ready for apply: {len(approved_urls)}")
 		if approved_urls:
-			st.dataframe([{"approved_url": url} for url in sorted(approved_urls)], use_container_width=True)
+			st.dataframe([{"approved_url": url} for url in sorted(approved_urls)], width="stretch")
 			if st.button("Open approved links in browser"):
 				opened = 0
 				for url in sorted(approved_urls):
@@ -477,7 +508,7 @@ def main() -> None:
 		app_rows = read_jsonl(paths.applications_jsonl)
 		if app_rows:
 			st.caption(f"Application attempts logged: {len(app_rows)}")
-			st.dataframe(app_rows[-50:], use_container_width=True)
+			st.dataframe(app_rows[-50:], width="stretch")
 
 	with tab_report:
 		st.subheader("Generate markdown report")
