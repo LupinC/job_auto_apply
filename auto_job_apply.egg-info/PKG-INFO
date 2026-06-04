@@ -1,3 +1,21 @@
+Metadata-Version: 2.4
+Name: auto-job-apply
+Version: 0.1.0
+Summary: Local-first human-supervised auto job apply PoC
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: pydantic<3,>=2.7
+Requires-Dist: typer<1,>=0.12
+Requires-Dist: rich<14,>=13.7
+Requires-Dist: python-dotenv<2,>=1.0
+Requires-Dist: pypdf<5,>=4.2
+Requires-Dist: python-docx<2,>=1.1
+Requires-Dist: playwright<2,>=1.45
+Provides-Extra: dev
+Requires-Dist: pytest<9,>=8.2; extra == "dev"
+Provides-Extra: ui
+Requires-Dist: streamlit<2,>=1.36; extra == "ui"
+
 # Auto Job Apply v0
 
 Local-first, human-supervised job application PoC.
@@ -28,14 +46,6 @@ For UI support:
 pip install -e .[ui]
 ```
 
-If you want CLI only, you do not need to install `.[ui]`.
-
-If you want UI only, you can install just UI extras:
-
-```bash
-pip install -e .[ui]
-```
-
 ## CLI
 
 ```bash
@@ -50,19 +60,7 @@ python -m auto_job_apply.main clear-data --yes
 
 ## UI (Streamlit)
 
-Launch from UI module directly (UI-only mode):
-
-```bash
-python -m auto_job_apply.ui.cli --host 127.0.0.1 --port 8501
-```
-
-Or with Streamlit command:
-
-```bash
-streamlit run auto_job_apply/ui/streamlit_app.py
-```
-
-Optional launch from CLI command:
+Launch from CLI command:
 
 ```bash
 python -m auto_job_apply.main ui --host 127.0.0.1 --port 8501
@@ -75,8 +73,6 @@ auto-job-apply-ui
 ```
 
 The UI and CLI share the same local data directory, so you can mix both workflows.
-
-UI-only mode now supports the full v0 workflow, including config visibility and local data clearing.
 
 ## Safety notes
 

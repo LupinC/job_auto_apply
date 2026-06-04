@@ -1,0 +1,3 @@
+[console_scripts]
+auto-job-apply = auto_job_apply.main:run
+auto-job-apply-ui = auto_job_apply.ui.streamlit_app:main

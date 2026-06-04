@@ -22,10 +22,18 @@ dependencies = [
 dev = [
   "pytest>=8.2,<9"
 ]
+ui = [
+  "streamlit>=1.36,<2"
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 addopts = "-q"
 
+[tool.setuptools.packages.find]
+include = ["auto_job_apply*"]
+exclude = ["data*"]
+
 [project.scripts]
 auto-job-apply = "auto_job_apply.main:run"
+auto-job-apply-ui = "auto_job_apply.ui.cli:main"

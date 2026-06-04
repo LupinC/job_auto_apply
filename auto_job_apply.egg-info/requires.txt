@@ -1,0 +1,13 @@
+pydantic<3,>=2.7
+typer<1,>=0.12
+rich<14,>=13.7
+python-dotenv<2,>=1.0
+pypdf<5,>=4.2
+python-docx<2,>=1.1
+playwright<2,>=1.45
+
+[dev]
+pytest<9,>=8.2
+
+[ui]
+streamlit<2,>=1.36

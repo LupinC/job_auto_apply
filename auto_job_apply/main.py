@@ -22,6 +22,7 @@ from auto_job_apply.storage.paths import AppPaths
 from auto_job_apply.storage.report_writer import write_report
 from auto_job_apply.safety.secrets import mask_api_key
 from auto_job_apply.safety.validation import assert_answer_entry_safe
+from auto_job_apply.ui.cli import run_ui
 
 app = typer.Typer(help="Auto Job Apply local-first v0")
 logger = setup_logging()
@@ -227,6 +228,17 @@ def show_config() -> None:
     cfg = load_config()
     safe_log(logger, logging.INFO, "Config loaded", data_dir=cfg.data_dir, llm_api_key=mask_api_key(cfg.llm_api_key))
     print({"data_dir": str(cfg.data_dir), "llm_base_url": cfg.llm_base_url})
+
+
+@app.command()
+def ui(
+    host: str = typer.Option("127.0.0.1", help="Streamlit host"),
+    port: int = typer.Option(8501, min=1, max=65535, help="Streamlit port"),
+) -> None:
+    try:
+        run_ui(host=host, port=port)
+    except RuntimeError as exc:
+        raise typer.BadParameter("Streamlit is not installed. Install with: pip install streamlit") from exc
 
 
 def _row_to_job(row: dict):
